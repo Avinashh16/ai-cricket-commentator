@@ -1,0 +1,4 @@
+faiss-cpu==1.13.2
+numpy==2.4.3
+openai==2.28.0
+sentence-transformers==5.2.3
