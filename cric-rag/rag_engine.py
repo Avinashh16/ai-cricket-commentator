@@ -19,24 +19,37 @@ class CricketRAGEngine:
             ) from e
         self.facts = list(FACTS)  # Start with static facts
         self.index = None
-        self.embeddings = None
+        self.live_keys = {}   # key -> index of that key's current (non-stale) fact
+        self.stale = set()    # indices of facts superseded by a newer live fact
         self._build_index()
 
     def _build_index(self):
         """Embed all facts and build FAISS index."""
         print(f"Embedding {len(self.facts)} facts into FAISS...")
-        self.embeddings = self.model.encode(self.facts, convert_to_numpy=True)
-        dim = self.embeddings.shape[1]
+        embeddings = self.model.encode(self.facts, convert_to_numpy=True)
+        dim = embeddings.shape[1]
         self.index = faiss.IndexFlatL2(dim)
-        self.index.add(self.embeddings)
+        self.index.add(embeddings)
         print(f"FAISS index built with {self.index.ntotal} vectors.")
 
-    def add_live_fact(self, fact: str):
+    def add_live_fact(self, fact: str, key: str = None):
         """
         Dynamically add a new fact to the knowledge base during the match.
         This is the DYNAMIC LAYER — knowledge base grows ball by ball.
+
+        If `key` is given and a previous fact was added under the same key
+        (e.g. a running wicket count for one bowler), the previous fact is
+        marked stale so retrieval won't return an outdated count alongside
+        the current one.
         """
+        if key is not None and key in self.live_keys:
+            self.stale.add(self.live_keys[key])
+
         self.facts.append(fact)
+        new_index = len(self.facts) - 1
+        if key is not None:
+            self.live_keys[key] = new_index
+
         new_embedding = self.model.encode([fact], convert_to_numpy=True)
         self.index.add(new_embedding)
         print(f"  [RAG] Live fact added: {fact}")
@@ -44,12 +57,17 @@ class CricketRAGEngine:
     def retrieve(self, query: str, top_k: int = 4) -> list[str]:
         """
         Given a query (auto-generated from ball event),
-        retrieve the top_k most relevant facts.
+        retrieve the top_k most relevant facts, skipping any that were
+        superseded by a newer live fact under the same key.
         """
         query_embedding = self.model.encode([query], convert_to_numpy=True)
-        distances, indices = self.index.search(query_embedding, top_k)
-        results = [self.facts[i] for i in indices[0] if i < len(self.facts)]
-        return results
+        # Overfetch since some hits may be filtered out as stale/padding.
+        distances, indices = self.index.search(query_embedding, top_k * 3)
+        results = [
+            self.facts[i] for i in indices[0]
+            if 0 <= i < len(self.facts) and i not in self.stale
+        ]
+        return results[:top_k]
 
 
 if __name__ == "__main__":

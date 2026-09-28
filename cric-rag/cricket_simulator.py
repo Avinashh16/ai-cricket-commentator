@@ -196,7 +196,8 @@ def run():
                 player_out = delivery["wickets"][0]["player_out"]
                 kind = delivery["wickets"][0]["kind"]
                 rag.add_live_fact(
-                    f"{bowler} has taken {bowler_wickets[bowler]} wicket(s) in this innings. NZ {state['score']}.")
+                    f"{bowler} has taken {bowler_wickets[bowler]} wicket(s) in this innings. NZ {state['score']}.",
+                    key=f"bowler_wickets:{bowler}")
                 rag.add_live_fact(
                     f"{player_out} was dismissed {kind} by {bowler}. NZ {state['score']}.")
             if event in ["SIX", "FOUR"]:
